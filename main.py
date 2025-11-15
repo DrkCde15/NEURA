@@ -2,153 +2,134 @@ import os
 import sqlite3
 import requests
 import threading
-from tkinter import Tk, Text, Entry, Button, Label, END, Scrollbar, RIGHT, Y, LEFT, BOTH, Frame
+import flet as ft
 
-# -------- CONFIGURAÇÃO --------
-OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "http://localhost:11434/v1/completions")
+# -------- CONFIG --------
+OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "http://localhost:11434/api/generate")
 DB_PATH = os.path.join(os.path.dirname(__file__), "data_memory.db")
-MODEL_TEXT = os.environ.get("MODEL_TEXT", "phi3")
-MEMORY_LIMIT = 10  # quantas trocas recuperar como contexto
+MODEL_TEXT = os.environ.get("MODEL_TEXT", "gemma:2b")
+MEMORY_LIMIT = 3
+MAX_TOKENS = 256
 
-# -------- MEMÓRIA (SQLite) --------
+# -------- MEMÓRIA (SQLite) THREAD-SAFE --------
 class MemoryDB:
     def __init__(self, path=DB_PATH):
         self.path = path
-        os.makedirs(os.path.dirname(self.path), exist_ok=True) 
+        self.lock = threading.Lock()
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
         self._init_db()
 
     def _init_db(self):
-        conn = sqlite3.connect(self.path)
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS memory (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        role TEXT,
-                        content TEXT
-                    )''')
-        conn.commit()
-        conn.close()
+        with self.lock:
+            conn = sqlite3.connect(self.path, check_same_thread=False)
+            c = conn.cursor()
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS memory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    role TEXT,
+                    content TEXT
+                )
+            """)
+            conn.commit()
+            conn.close()
 
     def save_message(self, role, content):
-        conn = sqlite3.connect(self.path)
-        c = conn.cursor()
-        c.execute("INSERT INTO memory (role, content) VALUES (?, ?)", (role, content))
-        conn.commit()
-        conn.close()
+        with self.lock:
+            conn = sqlite3.connect(self.path, check_same_thread=False)
+            c = conn.cursor()
+            c.execute("INSERT INTO memory (role, content) VALUES (?, ?)", (role, content))
+            conn.commit()
+            conn.close()
 
     def get_recent(self, limit=MEMORY_LIMIT):
-        conn = sqlite3.connect(self.path)
-        c = conn.cursor()
-        c.execute("SELECT role, content FROM memory ORDER BY id DESC LIMIT ?", (limit,))
-        rows = c.fetchall()
-        conn.close()
-        # retorna na ordem cronológica
-        return rows[::-1]
+        with self.lock:
+            conn = sqlite3.connect(self.path, check_same_thread=False)
+            c = conn.cursor()
+            c.execute("SELECT role, content FROM memory ORDER BY id DESC LIMIT ?", (limit,))
+            rows = c.fetchall()
+            conn.close()
+            return rows[::-1]
 
     def clear(self):
-        conn = sqlite3.connect(self.path)
-        c = conn.cursor()
-        c.execute("DELETE FROM memory")
-        conn.commit()
-        conn.close()
+        with self.lock:
+            conn = sqlite3.connect(self.path, check_same_thread=False)
+            c = conn.cursor()
+            c.execute("DELETE FROM memory")
+            conn.commit()
+            conn.close()
 
-# -------- CLIENTE OLLAMA (simples, via HTTP) --------
+# -------- CLIENTE OLLAMA --------
 class OllamaClient:
     def __init__(self, api_url=OLLAMA_API_URL):
         self.api_url = api_url.rstrip("/")
 
-    def generate_text(self, model, prompt, max_tokens=512):
+    def generate_text(self, model, prompt, max_tokens=MAX_TOKENS):
         payload = {
             "model": model,
             "prompt": prompt,
             "max_tokens": max_tokens,
-            "temperature": 0.2
+            "temperature": 0.2,
+            "stream": False  # 🔥 EVITA O ERRO “Extra data”
         }
+
         try:
             resp = requests.post(self.api_url, json=payload, timeout=60)
             resp.raise_for_status()
-            data = resp.json()
-            # Corrige leitura da resposta
-            return data.get("choices", [{}])[0].get("text", "").strip() or resp.text
+
+            data = resp.json()  # AGORA SÓ VEM UM JSON
+            return data.get("response", "").strip() or resp.text
+
         except Exception as e:
+            if "memory" in str(e).lower():
+                return "[Erro: modelo não pôde ser carregado. Use modelo mais leve ou reduza histórico/prompt]"
             return f"[Erro na geração: {e}]"
 
-# -------- GUI --------
-class LocalMindGUI:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("LocalMind - Chatbot Offline")
-        self.root.geometry("900x700")
+# -------- INTERFACE (Flet) --------
+def main(page: ft.Page):
+    page.title = "NEURA - Chatbot Offline"
+    page.vertical_alignment = ft.MainAxisAlignment.START
+    page.window_width = 900
+    page.window_height = 700
 
-        self.db = MemoryDB()
-        self.client = OllamaClient()
+    db = MemoryDB()
+    client = OllamaClient()
 
-        self._build_ui()
-        self._load_history_to_ui()
+    chat_view = ft.ListView(expand=True, spacing=10, auto_scroll=True)
 
-    def _build_ui(self):
-        top_frame = Frame(self.root)
-        top_frame.pack(fill=BOTH, expand=True)
+    input_field = ft.TextField(
+        hint_text="Digite sua mensagem...",
+        expand=True,
+        autofocus=True,
+        on_submit=lambda e: send_message()
+    )
 
-        # Chat text box com scrollbar
-        self.text_box = Text(top_frame, wrap='word', state='normal')
-        self.text_box.pack(side=LEFT, fill=BOTH, expand=True)
-        scrollbar = Scrollbar(top_frame, command=self.text_box.yview)
-        scrollbar.pack(side=RIGHT, fill=Y)
-        self.text_box.config(yscrollcommand=scrollbar.set)
+    send_btn = ft.ElevatedButton("Enviar", on_click=lambda e: send_message())
+    clear_btn = ft.OutlinedButton("Limpar Memória", on_click=lambda e: clear_memory())
+    refresh_btn = ft.OutlinedButton("Atualizar Histórico", on_click=lambda e: load_history())
 
-        # Input e botões
-        bottom_frame = Frame(self.root)
-        bottom_frame.pack(fill='x')
+    button_row = ft.Row([input_field, send_btn], alignment=ft.MainAxisAlignment.START)
+    control_row = ft.Row([clear_btn, refresh_btn])
 
-        self.entry = Entry(bottom_frame)
-        self.entry.pack(side=LEFT, fill='x', expand=True, padx=6, pady=6)
-        self.entry.bind('<Return>', lambda e: self._on_send())
+    def append_ui(role, content):
+        color = "#1e88e5" if role.lower().startswith("vo") else "#43a047"
+        chat_view.controls.append(
+            ft.Container(
+                content=ft.Text(f"{role}: {content}", selectable=True),
+                padding=10,
+                bgcolor=color + "20",
+                border_radius=10
+            )
+        )
+        page.update()
 
-        send_btn = Button(bottom_frame, text='Enviar', command=self._on_send)
-        send_btn.pack(side=LEFT, padx=6)
-
-        clear_btn = Button(bottom_frame, text='Limpar Memória', command=self._on_clear_memory)
-        clear_btn.pack(side=LEFT, padx=6)
-
-        refresh_btn = Button(bottom_frame, text='Atualizar Histórico', command=self._load_history_to_ui)
-        refresh_btn.pack(side=LEFT, padx=6)
-
-        # Área para visualizar imagem carregada
-        self.img_label = Label(self.root)
-        self.img_label.pack(pady=6)
-
-    def _append_ui(self, who, text):
-        tag = f"{who}: "
-        self.text_box.insert(END, tag + text + "\n\n")
-        self.text_box.see(END)
-
-    def _load_history_to_ui(self):
-        self.text_box.delete(1.0, END)
-        rows = self.db.get_recent(limit=1000)
+    def load_history():
+        chat_view.controls.clear()
+        rows = db.get_recent(limit=1000)
         for role, content in rows:
-            self.text_box.insert(END, f"{role}: {content}\n\n")
-        self.text_box.see(END)
+            append_ui(role, content)
 
-    def _on_send(self):
-        user_text = self.entry.get().strip()
-        if not user_text:
-            return
-        self.entry.delete(0, END)
-        self._append_ui('Você', user_text)
-        self.db.save_message('Usuário', user_text)
-
-        # Geração em thread pra não travar UI
-        threading.Thread(target=self._generate_and_append, args=(user_text,)).start()
-
-    def _generate_and_append(self, user_text):
-        contexto = self._build_context()
-        full_prompt = contexto + "\nUsuário: " + user_text + "\nIA:"
-        resposta = self.client.generate_text(MODEL_TEXT, full_prompt)
-        self.db.save_message('IA', resposta)
-        self._append_ui('IA', resposta)
-
-    def _build_context(self):
-        rows = self.db.get_recent(limit=MEMORY_LIMIT)
+    def build_context():
+        rows = db.get_recent(limit=MEMORY_LIMIT)
         contexto = ""
         for role, content in rows:
             if role.lower().startswith('usu'):
@@ -157,15 +138,48 @@ class LocalMindGUI:
                 contexto += f"IA: {content}\n"
         return contexto
 
-    def _on_clear_memory(self):
-        self.db.clear()
-        self._load_history_to_ui()
-        self._append_ui('Sistema', 'Memória limpa.')
+    def generate_and_append(user_text):
+        contexto = build_context()
+        full_prompt = f"{contexto}\nUsuário: {user_text}\nIA:"
+        resposta = client.generate_text(MODEL_TEXT, full_prompt)
 
-# -------- RODAR APP --------
-if __name__ == '__main__':
-    # Verificações básicas
-    print("Inicializando LocalMind GUI...")
-    root = Tk()
-    app = LocalMindGUI(root)
-    root.mainloop()
+        db.save_message('IA', resposta)
+        append_ui('IA', resposta)
+        page.update()
+
+    def send_message():
+        user_text = input_field.value.strip()
+        if not user_text:
+            return
+
+        input_field.value = ""
+        append_ui("Você", user_text)
+        db.save_message("Usuário", user_text)
+        page.update()
+
+        threading.Thread(target=generate_and_append, args=(user_text,), daemon=True).start()
+
+    def clear_memory():
+        db.clear()
+        chat_view.controls.clear()
+        append_ui("Sistema", "Memória limpa.")
+
+    load_history()
+
+    page.add(
+        ft.Column(
+            [
+                ft.Text("💬 LocalMind Chatbot", size=24, weight=ft.FontWeight.BOLD),
+                ft.Divider(),
+                chat_view,
+                ft.Divider(),
+                button_row,
+                control_row
+            ],
+            expand=True
+        )
+    )
+
+# -------- RUN APP --------
+if __name__ == "__main__":
+    ft.app(target=main)
