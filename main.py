@@ -1,185 +1,179 @@
-import os
+import ollama
 import sqlite3
-import requests
-import threading
-import flet as ft
+import pyfiglet
 
-# -------- CONFIG --------
-OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "http://localhost:11434/api/generate")
-DB_PATH = os.path.join(os.path.dirname(__file__), "data_memory.db")
-MODEL_TEXT = os.environ.get("MODEL_TEXT", "gemma:2b")
-MEMORY_LIMIT = 3
-MAX_TOKENS = 256
+# --------------------------
+# CONFIG
+# --------------------------
+DB_PATH = "data_memory.db"
+MODEL = "gemma:2b"  # Altere para o modelo que você tem localmente
 
-# -------- MEMÓRIA (SQLite) THREAD-SAFE --------
-class MemoryDB:
-    def __init__(self, path=DB_PATH):
-        self.path = path
-        self.lock = threading.Lock()
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        self._init_db()
+# --------------------------
+# INICIALIZAÇÃO
+# --------------------------
+def display_banner():
+    banner = pyfiglet.figlet_format("NEURA AI", font="small")
+    print("=" * 60)
+    print(banner)
+    print("🤖  Assistente IA com Memória Local")
 
-    def _init_db(self):
-        with self.lock:
-            conn = sqlite3.connect(self.path, check_same_thread=False)
-            c = conn.cursor()
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS memory (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    role TEXT,
-                    content TEXT
-                )
-            """)
-            conn.commit()
-            conn.close()
+def display_help():
+    """Exibe os comandos disponíveis de forma organizada"""
+    print("\n" + "📋 COMANDOS DISPONÍVEIS ".center(50, "="))
+    print("🔸 'sair'    - Encerra o programa")
+    print("🔸 'limpar'  - Limpa toda a memória da conversa")
+    print("🔸 'estado'  - Mostra estatísticas da memória")
+    print("🔸 'ajuda'   - Mostra esta mensagem")
+    print("=" * 50 + "\n")
 
-    def save_message(self, role, content):
-        with self.lock:
-            conn = sqlite3.connect(self.path, check_same_thread=False)
-            c = conn.cursor()
-            c.execute("INSERT INTO memory (role, content) VALUES (?, ?)", (role, content))
-            conn.commit()
-            conn.close()
-
-    def get_recent(self, limit=MEMORY_LIMIT):
-        with self.lock:
-            conn = sqlite3.connect(self.path, check_same_thread=False)
-            c = conn.cursor()
-            c.execute("SELECT role, content FROM memory ORDER BY id DESC LIMIT ?", (limit,))
-            rows = c.fetchall()
-            conn.close()
-            return rows[::-1]
-
-    def clear(self):
-        with self.lock:
-            conn = sqlite3.connect(self.path, check_same_thread=False)
-            c = conn.cursor()
-            c.execute("DELETE FROM memory")
-            conn.commit()
-            conn.close()
-
-# -------- CLIENTE OLLAMA --------
-class OllamaClient:
-    def __init__(self, api_url=OLLAMA_API_URL):
-        self.api_url = api_url.rstrip("/")
-
-    def generate_text(self, model, prompt, max_tokens=MAX_TOKENS):
-        payload = {
-            "model": model,
-            "prompt": prompt,
-            "max_tokens": max_tokens,
-            "temperature": 0.2,
-            "stream": False  # 🔥 EVITA O ERRO “Extra data”
-        }
-
-        try:
-            resp = requests.post(self.api_url, json=payload, timeout=60)
-            resp.raise_for_status()
-
-            data = resp.json()  # AGORA SÓ VEM UM JSON
-            return data.get("response", "").strip() or resp.text
-
-        except Exception as e:
-            if "memory" in str(e).lower():
-                return "[Erro: modelo não pôde ser carregado. Use modelo mais leve ou reduza histórico/prompt]"
-            return f"[Erro na geração: {e}]"
-
-# -------- INTERFACE (Flet) --------
-def main(page: ft.Page):
-    page.title = "NEURA - Chatbot Offline"
-    page.vertical_alignment = ft.MainAxisAlignment.START
-    page.window_width = 900
-    page.window_height = 700
-
-    db = MemoryDB()
-    client = OllamaClient()
-
-    chat_view = ft.ListView(expand=True, spacing=10, auto_scroll=True)
-
-    input_field = ft.TextField(
-        hint_text="Digite sua mensagem...",
-        expand=True,
-        autofocus=True,
-        on_submit=lambda e: send_message()
-    )
-
-    send_btn = ft.ElevatedButton("Enviar", on_click=lambda e: send_message())
-    clear_btn = ft.OutlinedButton("Limpar Memória", on_click=lambda e: clear_memory())
-    refresh_btn = ft.OutlinedButton("Atualizar Histórico", on_click=lambda e: load_history())
-
-    button_row = ft.Row([input_field, send_btn], alignment=ft.MainAxisAlignment.START)
-    control_row = ft.Row([clear_btn, refresh_btn])
-
-    def append_ui(role, content):
-        color = "#1e88e5" if role.lower().startswith("vo") else "#43a047"
-        chat_view.controls.append(
-            ft.Container(
-                content=ft.Text(f"{role}: {content}", selectable=True),
-                padding=10,
-                bgcolor=color + "20",
-                border_radius=10
-            )
+# --------------------------
+# FUNÇÕES DE MEMÓRIA
+# --------------------------
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS memory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role TEXT,
+            content TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
-        page.update()
+    """)
+    conn.commit()
+    conn.close()
 
-    def load_history():
-        chat_view.controls.clear()
-        rows = db.get_recent(limit=1000)
-        for role, content in rows:
-            append_ui(role, content)
+def save_message(role, content):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("INSERT INTO memory (role, content) VALUES (?, ?)", (role, content))
+    conn.commit()
+    conn.close()
 
-    def build_context():
-        rows = db.get_recent(limit=MEMORY_LIMIT)
-        contexto = ""
-        for role, content in rows:
-            if role.lower().startswith('usu'):
-                contexto += f"Usuário: {content}\n"
-            else:
-                contexto += f"IA: {content}\n"
-        return contexto
+def load_memory(limit=3):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT role, content FROM memory ORDER BY id DESC LIMIT ?", (limit,))
+    rows = cur.fetchall()
+    conn.close()
+    return rows[::-1]
 
-    def generate_and_append(user_text):
-        contexto = build_context()
-        full_prompt = f"{contexto}\nUsuário: {user_text}\nIA:"
-        resposta = client.generate_text(MODEL_TEXT, full_prompt)
+def clear_memory():
+    """Limpa toda a memória do banco de dados"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM memory")
+    conn.commit()
+    conn.close()
+    print("🗑️  Memória limpa com sucesso!\n")
 
-        db.save_message('IA', resposta)
-        append_ui('IA', resposta)
-        page.update()
+def get_memory_stats():
+    """Retorna estatísticas detalhadas da memória"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    
+    # Total de mensagens
+    cur.execute("SELECT COUNT(*) FROM memory")
+    total = cur.fetchone()[0]
+    
+    # Mensagens por role
+    cur.execute("SELECT role, COUNT(*) FROM memory GROUP BY role")
+    role_counts = dict(cur.fetchall())
+    
+    # Última mensagem
+    cur.execute("SELECT timestamp FROM memory ORDER BY id DESC LIMIT 1")
+    last_msg = cur.fetchone()
+    
+    conn.close()
+    
+    return {
+        'total': total,
+        'user_messages': role_counts.get('user', 0),
+        'assistant_messages': role_counts.get('assistant', 0),
+        'last_message': last_msg[0] if last_msg else 'Nenhuma'
+    }
 
-    def send_message():
-        user_text = input_field.value.strip()
-        if not user_text:
-            return
+# --------------------------
+# CHAMADA AO OLLAMA
+# --------------------------
+def call_ollama(prompt):
+    try:
+        response = ollama.generate(model=MODEL, prompt=prompt)
+        return response['response']
+    except Exception as e:
+        return f"❌ Erro ao chamar o modelo: {str(e)}"
 
-        input_field.value = ""
-        append_ui("Você", user_text)
-        db.save_message("Usuário", user_text)
-        page.update()
+# --------------------------
+# LOOP PRINCIPAL
+# --------------------------
+def main():
+    # Exibe banner inicial
+    display_banner()
+    
+    init_db()
+    
+    # Mostra estado inicial da memória
+    stats = get_memory_stats()
+    print(f"📊 Memória Inicial: {stats['total']} mensagens")
+    print(f"👤 Você: {stats['user_messages']} | 🤖 Neura: {stats['assistant_messages']}")
+    print("─" * 50)
+    
+    display_help()
 
-        threading.Thread(target=generate_and_append, args=(user_text,), daemon=True).start()
+    while True:
+        user_msg = input("💬 Você: ").strip()
+        
+        # Comando para sair
+        if user_msg.lower() in ["sair", "exit", "quit", "quit()"]:
+            print("\n👋 Até mais! Encerrando Neura AI...")
+            break
+        
+        # Comando para limpar memória
+        elif user_msg.lower() in ["limpar", "clear", "reset"]:
+            clear_memory()
+            continue
+        
+        # Comando para mostrar estado da memória
+        elif user_msg.lower() in ["estado", "status", "memória", "memory", "stats"]:
+            stats = get_memory_stats()
+            print("\n" + "📊 ESTADO DA MEMÓRIA ".center(50, "─"))
+            print(f"📈 Total de mensagens: {stats['total']}")
+            print(f"👤 Suas mensagens: {stats['user_messages']}")
+            print(f"🤖 Respostas da Neura: {stats['assistant_messages']}")
+            print(f"🕒 Última mensagem: {stats['last_message']}")
+            print("─" * 50 + "\n")
+            continue
+        
+        # Comando para ajuda
+        elif user_msg.lower() in ["ajuda", "help", "comandos", "?"]:
+            display_help()
+            continue
 
-    def clear_memory():
-        db.clear()
-        chat_view.controls.clear()
-        append_ui("Sistema", "Memória limpa.")
+        # Processa mensagem normal do usuário
+        save_message("user", user_msg)
 
-    load_history()
-
-    page.add(
-        ft.Column(
-            [
-                ft.Text("💬 LocalMind Chatbot", size=24, weight=ft.FontWeight.BOLD),
-                ft.Divider(),
-                chat_view,
-                ft.Divider(),
-                button_row,
-                control_row
-            ],
-            expand=True
+        # Recupera memória curta
+        memory_blocks = load_memory(limit=3)
+        
+        SYSTEM_MESSAGE = (
+            "Você é a Neura, um assistente IA conversando em português brasileiro. "
+            "Seja claro, natural e prestativo. Responda sempre em português."
         )
-    )
 
-# -------- RUN APP --------
+        # Monta prompt com contexto - CORRIGIDO
+        full_prompt = f"CONTEXTO DO SISTEMA: {SYSTEM_MESSAGE}\n"
+        full_prompt += "HISTÓRICO RECENTE DA CONVERSA:\n"
+        for role, content in memory_blocks:
+            full_prompt += f"{role.upper()}: {content}\n"
+        full_prompt += f"USER: {user_msg}\nASSISTANT: "
+
+        # Chama modelo
+        print("🤖 Neura: ", end="", flush=True)
+        bot_response = call_ollama(full_prompt)
+        print(bot_response + "\n")
+
+        # Salva resposta
+        save_message("assistant", bot_response)
+
 if __name__ == "__main__":
-    ft.app(target=main)
+    main()
