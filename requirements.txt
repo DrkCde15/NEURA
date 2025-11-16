@@ -1,3 +1,5 @@
 sqlite3
 pyfiglet
 ollama
+speech_recognition
+pyttsx3
