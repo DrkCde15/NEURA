@@ -1,82 +1,70 @@
-# NEURA AI
+# NEURA AI 🤖
 
 ## 1. Visão Geral
 
-**Visão Geral:**
-NEURA AI é um assistente de inteligência artificial interativo desenvolvido em Python. Ele foi projetado para se comunicar com o usuário tanto por entrada de texto quanto por voz, oferecendo uma experiência flexível. Utiliza um Large Language Model (LLM) via Ollama para processar e gerar respostas, enquanto gerencia a memória da conversa para manter o contexto ao longo da interação. A funcionalidade de voz é implementada através de reconhecimento de fala (STT) e síntese de fala (TTS), configurada para interações em português.
+**NEURA AI** é um ecossistema de inteligência artificial modular desenvolvido em Python. Projetado para ser leve e eficiente, ele permite interações por texto e voz (STT/TTS) utilizando Large Language Models (LLMs) locais via **Ollama**.
 
-## 2. Árvore de Diretórios
+O diferencial da Neura é sua **Memória Persistente Contextual** baseada em SQLite, permitindo que a IA mantenha o histórico de diálogos mesmo após reiniciar o sistema, tudo rodando localmente para garantir total privacidade.
 
-```
+## 2. Árvore de Diretórios Atualizada
+
+```text
 NEURA/
-├── main.py
-├── requirements.txt
-├── neura_ai/
-    ├── audio.py
-    ├── core.py
-    └── __init__.py
+├── neura_ai/               # Pacote principal da biblioteca
+│   ├── __init__.py         # Exposição de classes e versão
+│   ├── audio.py            # Módulo de voz (STT/TTS)
+│   └── core.py             # Cérebro da IA e Gestão de Memória SQL
+├── test/                   # Scripts de exemplo e testes
+│   └── robot_test.py       # Exemplo: Agente Veterinário
+├── .gitignore              # Proteção de arquivos sensíveis (.db, venv, dist)
+├── pyproject.toml          # Configuração de empacotamento e dependências
+├── README.md               # Documentação do projeto
+└── requirements.txt        # Lista de dependências para pip
+
 ```
 
-## 3. Explicação do Papel de Cada Pasta Principal
+## 3. Arquitetura de Componentes
 
-*   **`NEURA/` (Diretório Raiz do Projeto):**
-    Este é o diretório principal do projeto. Contém o ponto de entrada da aplicação (`main.py`), os requisitos de dependência (`requirements.txt`) e o pacote principal da aplicação (`neura_ai/`).
+* **`neura_ai/core.py` (The Brain):** Gerencia a comunicação com o Ollama. Implementa travas de segurança (temperatura baixa) para evitar alucinações e gerencia o banco de dados `data_memory.db`.
+* **`neura_ai/audio.py` (The Senses):** Interface de voz utilizando `SpeechRecognition` para entrada e `pyttsx3` para síntese de fala em português.
+* **`pyproject.toml`:** Define os metadados do projeto e isola a biblioteca de scripts de teste, permitindo a instalação via `pip install .`.
 
-*   **`neura_ai/` (Pacote da Aplicação):**
-    Este diretório constitui o pacote Python principal da NEURA AI. Ele encapsula a lógica central do assistente, modularizada em componentes como manipulação de áudio e a inteligência central.
-    *   **`__init__.py`:** Marca `neura_ai` como um pacote Python. Ele também serve para expor as classes `Neura` e `NeuraVoice` diretamente do pacote (`from neura_ai import Neura`), simplificando as importações para o código cliente. Define a versão do pacote.
-    *   **`audio.py`:** Contém a implementação da classe `NeuraVoice`, responsável por todas as funcionalidades de entrada e saída de áudio, incluindo reconhecimento de fala (Speech-to-Text - STT) e síntese de fala (Text-to-Speech - TTS).
-    *   **`core.py`:** Contém a implementação da classe `Neura`, que representa o "cérebro" da IA. Esta classe lida com a interação com o Large Language Model (LLM), o gerenciamento da memória da conversa (persistência) e a lógica principal de processamento das requisições do usuário.
+## 4. Fluxo de Dados e Memória
 
-## 4. Fluxo de Dados
+1. **Entrada:** O usuário envia texto ou comando de voz.
+2. **Recuperação:** A Neura busca as últimas 3 interações no **SQLite** para compor o contexto.
+3. **Processamento:** O prompt é enviado ao Ollama com o modelo `qwen2:0.5b` (recomendado para < 4GB RAM).
+4. **Persistência:** A resposta da IA é salva automaticamente no banco antes de ser exibida/falada.
 
-O fluxo de dados no projeto NEURA AI segue um padrão cliente-servidor/orquestrador, onde `main.py` atua como o orquestrador principal:
+## 5. Tecnologias e Dependências
 
-1.  **Inicialização (`main.py`):**
-    *   A execução começa em `main.py`, que imprime um banner de boas-vindas.
-    *   Instancia `Neura()` (o cérebro da IA) e `NeuraVoice()` (o módulo de áudio).
-    *   `Neura` inicializa sua conexão com o banco de dados SQLite (`data_memory.db`) para gerenciar a memória da conversa e configura o modelo Ollama a ser usado.
-    *   `NeuraVoice` inicializa o motor de TTS (`pyttsx3`) e configura as propriedades, como a voz em português.
+* **IA Local:** [Ollama](https://ollama.com/) (Modelos recomendados: `qwen2:0.5b` ou `llama3.2:1b`).
+* **Banco de Dados:** SQLite3 (Nativo do Python).
+* **Voz:** `pyttsx3` e `SpeechRecognition`.
+* **Interface:** `pyfiglet` para banners ASCII.
 
-2.  **Entrada do Usuário (`main.py` -> `NeuraVoice`):**
-    *   O `main.py` entra em um loop contínuo aguardando a entrada do usuário.
-    *   Se o usuário digitar "voz", o controle é passado para `NeuraVoice.listen()`.
-        *   `NeuraVoice.listen()` utiliza `SpeechRecognition` para capturar áudio do microfone e convertê-lo em texto.
-        *   O texto resultante é retornado para `main.py`.
-    *   Se o usuário digitar texto diretamente, essa entrada é utilizada.
+## 6. Como Começar
 
-3.  **Processamento da IA (`main.py` -> `Neura`):**
-    *   A entrada do usuário (seja texto digitado ou convertido de voz) é passada para o método de interação da instância `Neura` (método implícito que processaria a entrada).
-    *   A instância `Neura` fará o seguinte:
-        *   Registrará a entrada do usuário na memória (`sqlite3`).
-        *   Construirá o prompt para o LLM, possivelmente incluindo o histórico da conversa recuperado do SQLite.
-        *   Enviará o prompt ao LLM configurado via `ollama`.
-        *   Receberá a resposta do LLM.
-        *   Registrará a resposta do LLM na memória (`sqlite3`).
+### Pré-requisitos
 
-4.  **Saída da IA (`Neura` -> `main.py` -> `NeuraVoice`):**
-    *   A resposta gerada pelo LLM é retornada da instância `Neura` para `main.py`.
-    *   `main.py` exibe a resposta textual da IA no console.
-    *   Opcionalmente (não explícito nos snippets, mas inferido por `NeuraVoice`), a resposta pode ser passada para `NeuraVoice.speak()` (um método hipotético) para sintetizar e reproduzir a fala para o usuário.
+* Ollama instalado e rodando.
+* Modelo baixado: `ollama pull qwen2:0.5b`
 
-5.  **Ciclo Contínuo:**
-    *   O loop continua, aguardando a próxima interação do usuário, até que ele decida sair.
+### Instalação
 
-## 5. Tecnologias Detectadas
+```bash
+# Clone o repositório
+git clone https://github.com/DrkCde15/NEURA.git
+cd NEURA
 
-*   **Linguagem de Programação:**
-    *   **Python:** A linguagem principal de desenvolvimento do projeto.
+# Instale as dependências
+pip install -r requirements.txt
 
-*   **Inteligência Artificial & Processamento de Linguagem Natural (NLP):**
-    *   **Ollama:** Utilizado para interagir com Large Language Models (LLMs) localmente (ex: `gemma:2b`), permitindo que a IA gere respostas inteligentes e contextuais.
+```
 
-*   **Armazenamento de Dados:**
-    *   **SQLite:** Um sistema de gerenciamento de banco de dados relacional leve e embutido, utilizado para armazenar a memória da conversa (histórico de interações), garantindo que a IA possa manter o contexto.
+### Executando o Exemplo (Agente Veterinário)
 
-*   **Processamento de Áudio e Voz:**
-    *   **SpeechRecognition:** Biblioteca Python para realizar reconhecimento de fala, convertendo áudio (capturado via microfone) em texto.
-    *   **pyttsx3:** Biblioteca Python para conversão de texto em fala (Text-to-Speech - TTS), permitindo que a IA "fale" suas respostas.
-    *   **PyAudio:** Uma dependência comum para bibliotecas de áudio em Python (como `SpeechRecognition` e `pyttsx3`) para acessar e controlar dispositivos de entrada/saída de áudio.
+```bash
+python robot_test.py
 
-*   **Interface e Utilidades:**
-    *   **pyfiglet:** Utilizado para gerar texto ASCII art, especificamente para o banner "NEURA AI" na inicialização da aplicação, tornando a interface inicial mais visualmente atraente.
+```
