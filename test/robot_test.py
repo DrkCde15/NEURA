@@ -1,46 +1,46 @@
-from neura_ai import Neura
+import os
+from neura_ai.core import Neura
 
-# 1. Definimos a personalidade
+# Persona de Veterinária
 s = """Você é uma veterinária brasileira. Use frases curtas, palavras simples e seja muito realista. 
-Não invente palavras. Se não souber algo, diga que não sabe."""
+Se receber uma descrição de imagem, interprete como médica. Se não souber, diga que não sabe."""
 
-# 2. Criamos a instância com o modelo leve e o prompt definido
-n = Neura(
-    model="qwen2:0.5b", 
-    system_prompt=s
-)
-
-m = n.list_models()
-
-# Opcional: Limpar memória ao iniciar para um novo atendimento limpo
+# Inicializa a Neura (o core já cuida do NeuraVision internamente)
+n = Neura(model="qwen2:0.5b", system_prompt=s)
 n.clear_memory()
 
-print("\n--- INICIANDO CHAT ---")
-print("(Digite 'sair' para encerrar)\n")
+print("\n--- 🐾 CONSULTÓRIO VIRTUAL DA NEURA ---")
+print("Comandos: 'analise_imagem', 'limpar memória', 'sair'")
+print("Ou apenas arraste uma foto (.jpg) para o terminal.\n")
 
 while True:
-    # Captura a entrada do usuário
-    entrada = input("👤 Você: ")
+    entrada = input("👤 Você: ").strip()
     
-    # Listar modelos disponíveis
-    if entrada.lower() in ["listar modelos", "list models", "modelos"]:
-        m = n.list_models()
-        print("Modelos disponíveis:", m)
-        continue
-    
-    # Condição de limpesa de memória
-    if entrada.lower() in ["limpar memória", "limpar memoria", "clear memory"]:
-        n.clear_memory()
-        print("\n🤖 Neura: Memória limpa. Podemos começar um novo atendimento!\n")
-        continue
+    # Limpeza de aspas (essencial para Windows)
+    entrada = entrada.replace('"', '').replace("'", "")
 
-    # Condição de saída
-    if entrada.lower() in ["sair", "exit", "parar"]:
-        print("\n🤖 Neura: Atendimento finalizado. Até logo!")
+    if entrada.lower() in ["sair", "parar"]: 
         break
+        
+    if entrada.lower() in ["limpar memória", "clear"]:
+        n.clear_memory()
+        continue
 
-    # Obtém a resposta da sua biblioteca
-    resposta = n.get_response(entrada)
-    
-    # Exibe a resposta
-    print(f"\n🤖 Neura: {resposta}\n")
+    # Lógica de detecção de imagem
+    caminho_foto = None
+    if entrada.lower() == "analise_imagem":
+        caminho_foto = input("📷 Cole o caminho da imagem: ").strip().replace('"', '').replace("'", "")
+    elif entrada.lower().endswith(('.jpg', '.jpeg', '.png')) and os.path.exists(entrada):
+        caminho_foto = entrada
+
+    # --- EXECUÇÃO ---
+    if caminho_foto:
+        print(f"👁️ Analisando imagem... (Aguarde)")
+        descricao_ingles = n.get_response("Describe this image objectively", image_path=caminho_foto)
+        resposta_final = n.get_response(f"Traduza e comente como veterinária realista: {descricao_ingles}")
+    else:
+        # Chat de texto normal
+        resposta_final = n.get_response(entrada)
+
+    # Exibe a resposta final (seja da análise ou do chat)
+    print(f"\n🤖 Neura: {resposta_final}\n")

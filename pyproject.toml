@@ -10,7 +10,9 @@ dependencies = [
     "ollama",
     "SpeechRecognition",
     "pyttsx3",
-    "pyaudio"
+    "pyaudio",
+    "Pillow",
+    "requests"
 ]
 
 [tool.setuptools.packages.find]
