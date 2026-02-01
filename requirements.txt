@@ -1,5 +1,6 @@
 ollama
-pyfiglet
 SpeechRecognition
 pyttsx3
 pyaudio
+Pillow
+requests

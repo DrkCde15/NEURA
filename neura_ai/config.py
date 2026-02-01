@@ -1,0 +1,23 @@
+import os
+
+class NeuraConfig:
+    """Centralized configuration for NEURA AI."""
+    
+    # LLM Settings
+    LLM_MODEL = "qwen2:0.5b"
+    VISION_MODEL = "moondream"
+    OLLAMA_API_URL = "http://127.0.0.1:11434/api/generate"
+    OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+
+    # Database Settings
+    DB_PATH = "data_memory.db"
+
+    # Audio Settings
+    TTS_RATE = 185
+    TTS_VOLUME = 1.0
+    VOICE_KEYWORDS = ["brazil", "portuguese"]
+    LANGUAGE = "pt-BR"
+    
+    # Vision Settings
+    IMAGE_SIZE = (320, 320)
+    IMAGE_QUALITY = 80

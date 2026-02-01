@@ -1,73 +1,128 @@
 import os
 import sqlite3
+import logging
+import requests
+from typing import List, Dict, Optional
 import ollama
-from .image import NeuraVision  # Importa o novo módulo especializado
+from .image import NeuraVision
+from .config import NeuraConfig
+
+# Configuração de Logging
+# Define nível WARNING para suprimir logs de INFO (como "Enviando prompt...")
+logging.basicConfig(
+    level=logging.WARNING,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("NeuraCore")
+
+# Silencia logs verbosos de bibliotecas de terceiros
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 class Neura:
-    def __init__(self, model="qwen2:0.5b", vision_model="moondream", system_prompt=""):
+    def __init__(self, model: str = NeuraConfig.LLM_MODEL, 
+                 vision_model: str = NeuraConfig.VISION_MODEL, 
+                 system_prompt: str = ""):
         self.model = model
         self.vision_model = vision_model
         self.system_prompt = system_prompt
-        self.db_path = "data_memory.db"
+        self.db_path = NeuraConfig.DB_PATH
         
         # Inicializa o especialista em visão
         self.vision = NeuraVision(model=self.vision_model)
         
+        # Verifica saúde do Ollama
+        if not self._check_ollama_health():
+            logger.warning(f"Ollama não parece estar rodando em {NeuraConfig.OLLAMA_BASE_URL}")
+            print("⚠️ AVISO: Não foi possível conectar ao Ollama. Verifique se ele está rodando.")
+
         # Inicializa o banco de dados
         self._init_db()
 
-    def _init_db(self):
+    def _check_ollama_health(self) -> bool:
+        """Verifica se o servidor Ollama está acessível."""
+        try:
+            response = requests.get(NeuraConfig.OLLAMA_BASE_URL, timeout=2)
+            return response.status_code == 200
+        except requests.RequestException as e:
+            logger.error(f"Erro ao conectar ao Ollama: {e}")
+            return False
+
+    def _init_db(self) -> None:
         """Cria a tabela de memória se não existir."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS memory (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    role TEXT,
-                    content TEXT,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            conn.commit()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS memory (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        role TEXT,
+                        content TEXT,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                conn.commit()
+        except sqlite3.Error as e:
+            logger.critical(f"Erro ao inicializar banco de dados: {e}")
 
-    def save_message(self, role, content):
+    def save_message(self, role: str, content: str) -> None:
         """Salva uma mensagem no histórico do SQLite."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('INSERT INTO memory (role, content) VALUES (?, ?)', (role, content))
-            conn.commit()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('INSERT INTO memory (role, content) VALUES (?, ?)', (role, content))
+                conn.commit()
+        except sqlite3.Error as e:
+            logger.error(f"Erro ao salvar mensagem: {e}")
 
-    def get_context(self, limit=5):
+    def get_context(self, limit: int = 5) -> List[Dict[str, str]]:
         """Recupera as últimas mensagens para manter o contexto."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT role, content FROM memory ORDER BY id DESC LIMIT ?', (limit,))
-            rows = cursor.fetchall()
-            
-            context = [{"role": "system", "content": self.system_prompt}]
-            # Inverte para manter a ordem cronológica
-            for role, content in reversed(rows):
-                context.append({"role": role, "content": content})
-            return context
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT role, content FROM memory ORDER BY id DESC LIMIT ?', (limit,))
+                rows = cursor.fetchall()
+                
+                context = [{"role": "system", "content": self.system_prompt}]
+                # Inverte para manter a ordem cronológica
+                for role, content in reversed(rows):
+                    context.append({"role": role, "content": content})
+                return context
+        except sqlite3.Error as e:
+            logger.error(f"Erro ao recuperar contexto: {e}")
+            return [{"role": "system", "content": self.system_prompt}]
 
-    def clear_memory(self):
+    def clear_memory(self) -> None:
         """Limpa o histórico de conversas."""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM memory')
-            conn.commit()
-        print("🧠 Memória resetada!")
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM memory')
+                conn.commit()
+            logger.info("Memória resetada com sucesso.")
+            print("🧠 Memória resetada!")
+        except sqlite3.Error as e:
+            logger.error(f"Erro ao limpar memória: {e}")
 
-    def list_models(self):
+    def list_models(self) -> List[str]:
         """Lista os modelos disponíveis no Ollama local."""
-        models_info = ollama.list()
-        return [m['name'] for m in models_info['models']]
+        try:
+            models_info = ollama.list()
+            # Suporte para objetos Response do Ollama (versões mais recentes)
+            if hasattr(models_info, 'models'):
+                return [m.model for m in models_info.models]
+            # Fallback para dicionário (versões antigas)
+            return [m['name'] for m in models_info.get('models', [])]
+        except Exception as e:
+            logger.error(f"Erro ao listar modelos: {e}")
+            return []
 
-    def get_response(self, user_msg, image_path=None):
+    def get_response(self, user_msg: str, image_path: Optional[str] = None) -> str:
         """Garante a resposta da IA, decidindo entre Texto ou Visão."""
         try:
             # FLUXO 1: VISÃO (Se houver imagem, delega ao NeuraVision)
             if image_path and os.path.exists(image_path):
+                logger.info(f"Iniciando modo visão para: {image_path}")
                 print(f"Modo Visão ativado...")
                 # O módulo image.py resolve o processamento pesado
                 analise = self.vision.process_and_analyze(image_path, user_msg)
@@ -77,10 +132,11 @@ class Neura:
                     self.save_message("assistant", f"[🔍 Visão]: {analise}")
                 return analise
 
-            # FLUXO 2: TEXTO (Qwen)
+            # FLUXO 2: TEXTO
             self.save_message("user", user_msg)
             contexto = self.get_context()
 
+            logger.info(f"Enviando prompt para LLM: {self.model}")
             response = ollama.chat(
                 model=self.model,
                 messages=contexto,
@@ -93,7 +149,9 @@ class Neura:
                 self.save_message("assistant", final_text)
                 return final_text
             
+            logger.warning("LLM retornou resposta vazia.")
             return "⚠️ Neura: Não consegui gerar uma resposta no momento."
 
         except Exception as e:
+            logger.error(f"Erro crítico no Core: {e}", exc_info=True)
             return f"❌ Erro no Core: {str(e)}"

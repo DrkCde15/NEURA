@@ -10,7 +10,7 @@ n = Neura(model="qwen2:0.5b", system_prompt=s)
 n.clear_memory()
 
 print("\n--- 🐾 CONSULTÓRIO VIRTUAL DA NEURA ---")
-print("Comandos: 'analise_imagem', 'limpar memória', 'sair'")
+print("Comandos: 'analise_imagem', 'limpar memória', 'listar modelos', 'sair'")
 print("Ou apenas arraste uma foto (.jpg) para o terminal.\n")
 
 while True:
@@ -19,11 +19,16 @@ while True:
     # Limpeza de aspas (essencial para Windows)
     entrada = entrada.replace('"', '').replace("'", "")
 
-    if entrada.lower() in ["sair", "parar"]: 
+    if entrada.lower() in ["sair", "parar", "exit"]: 
         break
         
     if entrada.lower() in ["limpar memória", "clear"]:
         n.clear_memory()
+        continue
+
+    if entrada.lower() in ["listar modelos", "list models", "models"]:
+        modelos = n.list_models()
+        print(f"\n🧠 Modelos disponíveis: {', '.join(modelos)}\n")
         continue
 
     # Lógica de detecção de imagem

@@ -3,13 +3,14 @@ import base64
 import requests
 from io import BytesIO
 from PIL import Image
+from .config import NeuraConfig
 
 class NeuraVision:
-    def __init__(self, model="moondream"):
+    def __init__(self, model: str = NeuraConfig.VISION_MODEL):
         self.model = model
-        self.url = "http://127.0.0.1:11434/api/generate"
+        self.url = NeuraConfig.OLLAMA_API_URL
 
-    def process_and_analyze(self, image_path, prompt="Describe this image objectively"):
+    def process_and_analyze(self, image_path: str, prompt: str = "Describe this image objectively") -> str:
         """Redimensiona e envia para análise via API direta."""
         try:
             if not os.path.exists(image_path):
@@ -18,9 +19,9 @@ class NeuraVision:
             # 1. Redimensionamento Otimizado (Pillow)
             with Image.open(image_path) as img:
                 img = img.convert("RGB")
-                img.thumbnail((320, 320))
+                img.thumbnail(NeuraConfig.IMAGE_SIZE)
                 buffered = BytesIO()
-                img.save(buffered, format="JPEG", quality=80)
+                img.save(buffered, format="JPEG", quality=NeuraConfig.IMAGE_QUALITY)
                 img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
             # 2. Preparação do Payload
