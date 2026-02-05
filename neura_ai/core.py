@@ -4,6 +4,9 @@ import logging
 import requests
 from typing import List, Dict, Optional
 import ollama
+import subprocess
+import platform
+import time
 from .image import NeuraVision
 from .config import NeuraConfig
 
@@ -22,19 +25,34 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 class Neura:
     def __init__(self, model: str = NeuraConfig.LLM_MODEL, 
                  vision_model: str = NeuraConfig.VISION_MODEL, 
-                 system_prompt: str = ""):
+                 system_prompt: str = "",
+                 host: str = NeuraConfig.OLLAMA_BASE_URL,
+                 headers: Optional[Dict[str, str]] = None):
         self.model = model
         self.vision_model = vision_model
         self.system_prompt = system_prompt
         self.db_path = NeuraConfig.DB_PATH
+        self.host = host
         
-        # Inicializa o especialista em visão
-        self.vision = NeuraVision(model=self.vision_model)
+        # Se estiver usando o túnel da Neura, adiciona os headers de bypass automaticamente
+        self.headers = headers or {}
+        if self.host == NeuraConfig.TUNNEL_URL:
+            self.headers.update(NeuraConfig.BYPASS_HEADERS)
         
-        # Verifica saúde do Ollama
-        if not self._check_ollama_health():
-            logger.warning(f"Ollama não parece estar rodando em {NeuraConfig.OLLAMA_BASE_URL}")
-            print("⚠️ AVISO: Não foi possível conectar ao Ollama. Verifique se ele está rodando.")
+        # Inicializa o especialista em visão com host e headers
+        self.vision = NeuraVision(model=self.vision_model, host=self.host, headers=self.headers)
+        
+        # Inicializa o cliente Ollama com suporte a headers
+        try:
+            self.client = ollama.Client(host=self.host, headers=self.headers)
+        except Exception as e:
+            logger.error(f"Erro ao inicializar cliente Ollama: {e}")
+            self.client = None
+        
+        # Tenta iniciar a infraestrutura automaticamente se estiver no Windows
+        if platform.system() == "Windows":
+            self._ensure_ollama_running()
+            self._ensure_tunnel_running()
 
         # Inicializa o banco de dados
         self._init_db()
@@ -42,11 +60,47 @@ class Neura:
     def _check_ollama_health(self) -> bool:
         """Verifica se o servidor Ollama está acessível."""
         try:
+            # Tenta conectar no host configurado
             response = requests.get(NeuraConfig.OLLAMA_BASE_URL, timeout=2)
             return response.status_code == 200
-        except requests.RequestException as e:
-            logger.error(f"Erro ao conectar ao Ollama: {e}")
+        except:
             return False
+
+    def _ensure_ollama_running(self):
+        """No Windows, tenta subir o serviço do Ollama se estiver offline."""
+        if not self._check_ollama_health():
+            logger.info("Ollama offline. Tentando iniciar serviço...")
+            try:
+                # Inicia o Ollama oculto
+                cmd = 'Start-Process ollama -ArgumentList "serve" -WindowStyle Hidden'
+                subprocess.Popen(["powershell", "-Command", cmd], shell=True)
+                print("⏳ Iniciando motor de IA (Ollama)...")
+                time.sleep(3)
+            except Exception as e:
+                logger.error(f"Falha ao auto-iniciar Ollama: {e}")
+
+    def _ensure_tunnel_running(self):
+        """Verifica se o túnel cloudflared está rodando, se não, inicia um novo."""
+        try:
+            # Verifica se o processo cloudflared.exe existe
+            # Usamos errors='ignore' para evitar falhas de codificação no Windows (CP850/UTF-8)
+            output = subprocess.check_output('tasklist /FI "IMAGENAME eq cloudflared.exe"', shell=True)
+            check_process = output.decode('utf-8', errors='ignore')
+            
+            if "cloudflared.exe" not in check_process:
+                print("📡 Túnel Cloudflare offline. Iniciando nova conexão...")
+                path = r"C:\Program Files (x86)\cloudflared\cloudflared.exe"
+                if os.path.exists(path):
+                    # Abre em uma nova janela para o usuário ver o link gerado
+                    cmd = f'start powershell -NoExit -Command "& \'{path}\' tunnel --url http://localhost:11434"'
+                    subprocess.Popen(cmd, shell=True)
+                    print("🚀 Túnel aberto! Verifique a nova janela para pegar o link da Cloudflare.")
+                else:
+                    print("⚠️ cloudflared.exe não encontrado no caminho padrão.")
+            else:
+                print("✅ Túnel Cloudflare já está em execução.")
+        except Exception as e:
+            logger.error(f"Erro ao verificar/iniciar túnel: {e}")
 
     def _init_db(self) -> None:
         """Cria a tabela de memória se não existir."""

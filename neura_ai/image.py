@@ -6,9 +6,13 @@ from PIL import Image
 from .config import NeuraConfig
 
 class NeuraVision:
-    def __init__(self, model: str = NeuraConfig.VISION_MODEL):
+    def __init__(self, model: str = NeuraConfig.VISION_MODEL, 
+                 host: str = NeuraConfig.OLLAMA_BASE_URL,
+                 headers: Optional[Dict[str, str]] = None):
         self.model = model
-        self.url = NeuraConfig.OLLAMA_API_URL
+        self.host = host
+        self.headers = headers or {}
+        self.url = f"{self.host}/api/generate"
 
     def process_and_analyze(self, image_path: str, prompt: str = "Describe this image objectively") -> str:
         """Redimensiona e envia para análise via API direta."""
@@ -36,8 +40,9 @@ class NeuraVision:
             # 3. Requisição Direta
             response = requests.post(
                 self.url, 
-                json=payload, 
-                timeout=120
+                json=payload,
+                headers=self.headers,
+                timeout=30
             )
 
             if response.status_code == 200:

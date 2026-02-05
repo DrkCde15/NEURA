@@ -1,3 +1,6 @@
 neura_ai.egg-info/
 dist/
 *.db
+*.js
+*.log
+*in

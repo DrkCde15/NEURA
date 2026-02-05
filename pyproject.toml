@@ -4,8 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neura_ai"
-version = "0.2.5"
-description = "Assistente IA com memória e voz"
+version = "0.2.6"
+description = "Assistente IA Multimodal com Memória SQLite e suporte a Visão/Voz"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {file = "LICENSE"}
+authors = [
+  { name = "DrkCde15" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
 dependencies = [
     "ollama",
     "SpeechRecognition",
@@ -15,5 +26,9 @@ dependencies = [
     "requests"
 ]
 
+[project.urls]
+"Homepage" = "https://github.com/DrkCde15/NEURA"
+"Bug Tracker" = "https://github.com/DrkCde15/NEURA/issues"
+
 [tool.setuptools.packages.find]
-include = ["neura_ai*"]  # Isso garante que apenas o código da lib seja instalado
+include = ["neura_ai*"]

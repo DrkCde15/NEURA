@@ -12,6 +12,10 @@ class NeuraConfig:
     # Database Settings
     DB_PATH = "data_memory.db"
 
+    # Remote Tunnel (Optional)
+    TUNNEL_URL = "https://neura-ai.loca.lt"
+    BYPASS_HEADERS = {"Bypass-Tunnel-Reminder": "true"}
+
     # Audio Settings
     TTS_RATE = 185
     TTS_VOLUME = 1.0
