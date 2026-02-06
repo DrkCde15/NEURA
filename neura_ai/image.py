@@ -2,6 +2,7 @@ import os
 import base64
 import requests
 from io import BytesIO
+from typing import Optional, Dict
 from PIL import Image
 from .config import NeuraConfig
 

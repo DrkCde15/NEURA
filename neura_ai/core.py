@@ -2,7 +2,7 @@ import os
 import sqlite3
 import logging
 import requests
-from typing import List, Dict, Optional
+from typing import List, Optional, Dict
 import ollama
 import subprocess
 import platform
@@ -49,58 +49,18 @@ class Neura:
             logger.error(f"Erro ao inicializar cliente Ollama: {e}")
             self.client = None
         
-        # Tenta iniciar a infraestrutura automaticamente se estiver no Windows
-        if platform.system() == "Windows":
-            self._ensure_ollama_running()
-            self._ensure_tunnel_running()
-
         # Inicializa o banco de dados
         self._init_db()
 
-    def _check_ollama_health(self) -> bool:
-        """Verifica se o servidor Ollama está acessível."""
+    def health_check(self) -> bool:
+        """Verifica se o servidor de IA no host configurado está acessível."""
         try:
-            # Tenta conectar no host configurado
-            response = requests.get(NeuraConfig.OLLAMA_BASE_URL, timeout=2)
+            # Tenta conectar no host atual (pode ser local ou túnel)
+            response = requests.get(f"{self.host}/api/tags", headers=self.headers, timeout=5)
             return response.status_code == 200
-        except:
+        except Exception:
             return False
 
-    def _ensure_ollama_running(self):
-        """No Windows, tenta subir o serviço do Ollama se estiver offline."""
-        if not self._check_ollama_health():
-            logger.info("Ollama offline. Tentando iniciar serviço...")
-            try:
-                # Inicia o Ollama oculto
-                cmd = 'Start-Process ollama -ArgumentList "serve" -WindowStyle Hidden'
-                subprocess.Popen(["powershell", "-Command", cmd], shell=True)
-                print("⏳ Iniciando motor de IA (Ollama)...")
-                time.sleep(3)
-            except Exception as e:
-                logger.error(f"Falha ao auto-iniciar Ollama: {e}")
-
-    def _ensure_tunnel_running(self):
-        """Verifica se o túnel cloudflared está rodando, se não, inicia um novo."""
-        try:
-            # Verifica se o processo cloudflared.exe existe
-            # Usamos errors='ignore' para evitar falhas de codificação no Windows (CP850/UTF-8)
-            output = subprocess.check_output('tasklist /FI "IMAGENAME eq cloudflared.exe"', shell=True)
-            check_process = output.decode('utf-8', errors='ignore')
-            
-            if "cloudflared.exe" not in check_process:
-                print("📡 Túnel Cloudflare offline. Iniciando nova conexão...")
-                path = r"C:\Program Files (x86)\cloudflared\cloudflared.exe"
-                if os.path.exists(path):
-                    # Abre em uma nova janela para o usuário ver o link gerado
-                    cmd = f'start powershell -NoExit -Command "& \'{path}\' tunnel --url http://localhost:11434"'
-                    subprocess.Popen(cmd, shell=True)
-                    print("🚀 Túnel aberto! Verifique a nova janela para pegar o link da Cloudflare.")
-                else:
-                    print("⚠️ cloudflared.exe não encontrado no caminho padrão.")
-            else:
-                print("✅ Túnel Cloudflare já está em execução.")
-        except Exception as e:
-            logger.error(f"Erro ao verificar/iniciar túnel: {e}")
 
     def _init_db(self) -> None:
         """Cria a tabela de memória se não existir."""
@@ -161,7 +121,9 @@ class Neura:
     def list_models(self) -> List[str]:
         """Lista os modelos disponíveis no Ollama local."""
         try:
-            models_info = ollama.list()
+            if not self.client:
+                return []
+            models_info = self.client.list()
             # Suporte para objetos Response do Ollama (versões mais recentes)
             if hasattr(models_info, 'models'):
                 return [m.model for m in models_info.models]
@@ -191,7 +153,7 @@ class Neura:
             contexto = self.get_context()
 
             logger.info(f"Enviando prompt para LLM: {self.model}")
-            response = ollama.chat(
+            response = self.client.chat(
                 model=self.model,
                 messages=contexto,
                 options={"temperature": 0.3} # Baixa temperatura = Respostas mais realistas
