@@ -1,5 +1,4 @@
 import os
-import sys
 from neura_ai.core import Neura
 from neura_ai.config import NeuraConfig
 
@@ -8,7 +7,7 @@ def clear_screen():
 
 def main():
     # Pergunta o modo de conexão
-    print("--- 🌐 SELEÇÃO DE CONEXÃO ---")
+    print("--- SELEÇÃO DE CONEXÃO ---")
     print("1. Local (127.0.0.1:11434)")
     print("2. Remoto (neura-ai.loca.lt)")
     escolha = input("\nEscolha o modo [1/2]: ").strip()
@@ -30,17 +29,17 @@ def main():
     n = Neura(host=host, system_prompt=system_prompt)
 
     # Verificação de Saúde
-    print("📋 Verificando conexão com o servidor...")
+    print("Verificando conexão com o servidor...")
     if not n.health_check():
-        print(f"\n❌ ERRO: Não foi possível conectar ao servidor em {host}")
+        print(f"\nERRO: Não foi possível conectar ao servidor em {host}")
         print("Certifique-se de que o Ollama (e o Túnel, se remoto) estão rodando.")
         return
 
     n.clear_memory()
     clear_screen()
 
-    print("\n--- 🐾 CONSULTÓRIO VIRTUAL DA NEURA AI ---")
-    print(f"📍 Conectado em: {host}")
+    print("\n--- CONSULTÓRIO VIRTUAL DA NEURA AI ---")
+    print(f"Conectado em: {host}")
     print("Comandos: 'analise_imagem', 'limpar memória', 'listar modelos', 'sair'")
     print("Dica: Você pode arrastar uma foto para o terminal para analisá-la.\n")
 
@@ -71,13 +70,13 @@ def main():
             # Lógica de detecção de imagem
             caminho_foto = None
             if entrada.lower() == "analise_imagem":
-                caminho_foto = input("📷 Cole o caminho da imagem: ").strip().replace('"', '').replace("'", "")
+                caminho_foto = input("Cole o caminho da imagem: ").strip().replace('"', '').replace("'", "")
             elif entrada.lower().endswith(('.jpg', '.jpeg', '.png')) and os.path.exists(entrada):
                 caminho_foto = entrada
 
             # --- EXECUÇÃO ---
             if caminho_foto:
-                print(f"👁️ Analisando imagem... (Isso pode levar alguns segundos)")
+                print(f"Analisando imagem... (Isso pode levar alguns segundos)")
                 # Pede a análise visual
                 descricao_ingles = n.get_response("Describe this image objectively", image_path=caminho_foto)
                 # Passa a análise para a persona
