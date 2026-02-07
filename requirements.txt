@@ -1,6 +1,3 @@
 ollama
-SpeechRecognition
-pyttsx3
-pyaudio
 Pillow
 requests
