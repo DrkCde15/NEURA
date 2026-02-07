@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neura_ai"
-version = "0.2.6"
+version = "0.2.7"
 description = "Assistente IA Multimodal com Memória SQLite e suporte a Visão/Voz"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -19,9 +19,6 @@ classifiers = [
 ]
 dependencies = [
     "ollama",
-    "SpeechRecognition",
-    "pyttsx3",
-    "pyaudio",
     "Pillow",
     "requests"
 ]

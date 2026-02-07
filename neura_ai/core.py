@@ -114,7 +114,7 @@ class Neura:
                 cursor.execute('DELETE FROM memory')
                 conn.commit()
             logger.info("Memória resetada com sucesso.")
-            print("🧠 Memória resetada!")
+            print("Memória resetada!")
         except sqlite3.Error as e:
             logger.error(f"Erro ao limpar memória: {e}")
 
@@ -166,8 +166,8 @@ class Neura:
                 return final_text
             
             logger.warning("LLM retornou resposta vazia.")
-            return "⚠️ Neura: Não consegui gerar uma resposta no momento."
+            return "Neura: Não consegui gerar uma resposta no momento."
 
         except Exception as e:
             logger.error(f"Erro crítico no Core: {e}", exc_info=True)
-            return f"❌ Erro no Core: {str(e)}"
+            return f"Erro no Core: {str(e)}"

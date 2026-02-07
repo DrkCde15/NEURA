@@ -1,5 +1,3 @@
-import os
-
 class NeuraConfig:
     """Centralized configuration for NEURA AI."""
     
@@ -15,12 +13,6 @@ class NeuraConfig:
     # Remote Tunnel (Optional)
     TUNNEL_URL = "https://neura-ai.loca.lt"
     BYPASS_HEADERS = {"Bypass-Tunnel-Reminder": "true"}
-
-    # Audio Settings
-    TTS_RATE = 185
-    TTS_VOLUME = 1.0
-    VOICE_KEYWORDS = ["brazil", "portuguese"]
-    LANGUAGE = "pt-BR"
     
     # Vision Settings
     IMAGE_SIZE = (320, 320)
