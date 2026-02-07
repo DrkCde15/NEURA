@@ -4,14 +4,10 @@ import logging
 import requests
 from typing import List, Optional, Dict
 import ollama
-import subprocess
-import platform
-import time
 from .image import NeuraVision
 from .config import NeuraConfig
 
 # Configuração de Logging
-# Define nível WARNING para suprimir logs de INFO (como "Enviando prompt...")
 logging.basicConfig(
     level=logging.WARNING,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
