@@ -23,12 +23,14 @@ class Neura:
                  vision_model: str = NeuraConfig.VISION_MODEL, 
                  system_prompt: str = "",
                  host: str = NeuraConfig.OLLAMA_BASE_URL,
-                 headers: Optional[Dict[str, str]] = None):
+                 headers: Optional[Dict[str, str]] = None,
+                 use_memory: bool = True):
         self.model = model
         self.vision_model = vision_model
         self.system_prompt = system_prompt
         self.db_path = NeuraConfig.DB_PATH
         self.host = host
+        self.use_memory = use_memory
         
         # Se estiver usando o túnel da Neura, adiciona os headers de bypass automaticamente
         self.headers = headers or {}
@@ -45,8 +47,9 @@ class Neura:
             logger.error(f"Erro ao inicializar cliente Ollama: {e}")
             self.client = None
         
-        # Inicializa o banco de dados
-        self._init_db()
+        # Inicializa o banco de dados se a memória estiver ativa
+        if self.use_memory:
+            self._init_db()
 
     def health_check(self) -> bool:
         """Verifica se o servidor de IA no host configurado está acessível."""
@@ -60,6 +63,8 @@ class Neura:
 
     def _init_db(self) -> None:
         """Cria a tabela de memória se não existir."""
+        if not self.use_memory:
+            return
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -77,6 +82,8 @@ class Neura:
 
     def save_message(self, role: str, content: str) -> None:
         """Salva uma mensagem no histórico do SQLite."""
+        if not self.use_memory:
+            return
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -87,13 +94,18 @@ class Neura:
 
     def get_context(self, limit: int = 5) -> List[Dict[str, str]]:
         """Recupera as últimas mensagens para manter o contexto."""
+        if not self.use_memory:
+             return [{"role": "system", "content": self.system_prompt}] if self.system_prompt else []
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute('SELECT role, content FROM memory ORDER BY id DESC LIMIT ?', (limit,))
                 rows = cursor.fetchall()
                 
-                context = [{"role": "system", "content": self.system_prompt}]
+                context = []
+                if self.system_prompt:
+                    context.append({"role": "system", "content": self.system_prompt})
+                
                 # Inverte para manter a ordem cronológica
                 for role, content in reversed(rows):
                     context.append({"role": role, "content": content})
@@ -104,6 +116,9 @@ class Neura:
 
     def clear_memory(self) -> None:
         """Limpa o histórico de conversas."""
+        if not self.use_memory:
+            print("Memória SQLite desativada nesta instância.")
+            return
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -129,39 +144,53 @@ class Neura:
             logger.error(f"Erro ao listar modelos: {e}")
             return []
 
-    def get_response(self, user_msg: str, image_path: Optional[str] = None) -> str:
+    def get_response(self, user_msg: str, image_path: Optional[str] = None, 
+                     history: Optional[List[Dict[str, str]]] = None) -> str:
         """Garante a resposta da IA, decidindo entre Texto ou Visão."""
         try:
             # FLUXO 1: VISÃO (Se houver imagem, delega ao NeuraVision)
             if image_path and os.path.exists(image_path):
                 logger.info(f"Iniciando modo visão para: {image_path}")
                 print(f"Modo Visão ativado...")
-                # O módulo image.py resolve o processamento pesado
                 analise = self.vision.process_and_analyze(image_path, user_msg)
                 
-                # Salva a análise na memória para o contexto futuro
-                if analise:
+                if analise and self.use_memory:
                     self.save_message("assistant", f"[🔍 Visão]: {analise}")
                 return analise
 
             # FLUXO 2: TEXTO
-            self.save_message("user", user_msg)
-            contexto = self.get_context()
+            if history:
+                # Se o usuário passou um histórico externo (ex: MySQL), usa ele
+                contexto = history
+                # Garante que o system prompt esteja no topo se não estiver
+                if self.system_prompt and (not contexto or contexto[0].get("role") != "system"):
+                    contexto.insert(0, {"role": "system", "content": self.system_prompt})
+                contexto.append({"role": "user", "content": user_msg})
+            elif self.use_memory:
+                # Usa o fluxo padrão do SQLite
+                self.save_message("user", user_msg)
+                contexto = self.get_context()
+            else:
+                # Fluxo stateless: Apenas prompt de sistema + mensagem atual
+                contexto = []
+                if self.system_prompt:
+                    contexto.append({"role": "system", "content": self.system_prompt})
+                contexto.append({"role": "user", "content": user_msg})
 
             logger.info(f"Enviando prompt para LLM: {self.model}")
             response = self.client.chat(
                 model=self.model,
                 messages=contexto,
-                options={"temperature": 0.3} # Baixa temperatura = Respostas mais realistas
+                options={"temperature": 0.3}
             )
 
             final_text = response['message']['content'].strip()
             
             if final_text:
-                self.save_message("assistant", final_text)
+                if self.use_memory:
+                    self.save_message("assistant", final_text)
                 return final_text
             
-            logger.warning("LLM retornou resposta vazia.")
             return "Neura: Não consegui gerar uma resposta no momento."
 
         except Exception as e:
