@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neura_ai"
-version = "0.3.0"
+version = "1.0"
 description = "Assistente IA"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = {file = "LICENSE"}
 authors = [
   { name = "DrkCde15" },
@@ -18,9 +18,9 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "ollama",
-    "Pillow",
-    "requests"
+    "python-dotenv>=1.0.1",
+    "Pillow>=10.0.0",
+    "requests>=2.31.0"
 ]
 
 [project.urls]
